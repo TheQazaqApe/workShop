@@ -37,9 +37,11 @@ jobs:
               if (pr) {
                 console.log(`PR for ${base} already exist - #${pr.number} ${pr.title}`);
                 const data = await github.pulls.update({
-                  owner, repo,
+                  owner,
+                  repo,
                   pull_number: pr.number,
                 });
+                console.log(`HERE ${data}`);
                 action = 'updated';
                 pr = data;
               } else {
