@@ -1,0 +1,99 @@
+name: stage-updates
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  stage-updates:
+    runs-on: ubuntu-latest
+    env:
+      HEAD: ybsuleimanov:master
+      BRANCHES: dev-a,dev-b
+    steps:
+      - name: Create Pull-Requests from stage to dev- branches
+        uses: actions/github-script@v2
+        id: create-pr
+        with:
+          debug: true
+          script: |
+            const head = '${{ env.HEAD }}';
+            const branches = '${{ env.BRANCHES }}'.split(',');
+            const { repo: { owner, repo }, payload: { head_commit, pusher, repository: { html_url }  } } = context;
+            const creatPR = async base => {
+              try {
+                await github.repos.getBranch({
+                  owner, repo,
+                  branch: base,
+                });
+              } catch (e) {
+                return console.log(`Branch ${base} doesn't exist`);
+              }
+              let { data: [ pr ] } = await github.pulls.list({
+                owner, repo, head, base,
+                state: 'open',
+              });
+              let action; // created|updated
+              if (pr) {
+                console.log(`PR for ${base} already exist - #${pr.number} ${pr.title}`);
+                const { data } = await github.pulls.update({
+                  owner, repo,
+                  pull_number: pr.number,
+                });
+                action = 'updated';
+                pr = data;
+              } else {
+                const { data } = await github.pulls.create({
+                  owner, repo, head, base,
+                  title: `Update ${base}`,
+                });
+                action = 'created';
+                pr = data;
+              }
+              if (pr.mergeable_state === 'unknown') {
+                await new Promise(res => setTimeout(res, 5000));
+                const { number } = pr;
+                console.log(`refetch PR #${number} for ${base}`);
+                const { data } = await github.pulls.get({
+                  owner, repo,
+                  pull_number: number,
+                });
+                pr = data;
+              }
+              console.log(`PR #${pr.number} ${pr.title} for ${base} ${action}`);
+              console.log(pr);
+              const {
+                number,
+                html_url,
+                title,
+                commits,
+                additions,
+                deletions,
+                changed_files,
+                mergeable_state,
+              } = pr;
+              return {
+                action, base,
+                pr: {
+                  number,
+                  html_url,
+                  title,
+                  commits,
+                  additions,
+                  deletions,
+                  changed_files,
+                  mergeable_state,
+                },
+              };
+            };
+            const results = await Promise.all(branches.map(branch => creatPR(branch)));
+            const output = {
+              pusher,
+              commit: head_commit,
+              repo,
+              url: html_url,
+              pull_requests: results.filter(result => result),
+            };
+            console.log(output);
+            core.setOutput('data', output);
+            return output;
